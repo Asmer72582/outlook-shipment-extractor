@@ -6,6 +6,24 @@ const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 const MESSAGE_SELECT = 'id,subject,from,receivedDateTime,body';
 const INBOX_LIST_SELECT = 'id,subject,from,receivedDateTime,bodyPreview,isRead';
 
+export class GraphApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string
+  ) {
+    super(message);
+    this.name = 'GraphApiError';
+  }
+}
+
+function isInefficientFilterError(error: unknown): boolean {
+  return (
+    error instanceof GraphApiError &&
+    (error.code === 'InefficientFilter' || error.message.includes('too complex'))
+  );
+}
+
 async function graphFetch<T>(
   url: string,
   accessToken: string,
@@ -39,13 +57,19 @@ async function graphFetch<T>(
 
   if (!response.ok) {
     let detail = '';
+    let code: string | undefined;
     try {
-      const body = await response.json() as { error?: { message?: string } };
+      const body = await response.json() as { error?: { code?: string; message?: string } };
+      code = body.error?.code;
       detail = body.error?.message ? `: ${body.error.message}` : '';
     } catch {
       // ignore parse errors
     }
-    throw new Error(`Unable to read Outlook messages (${response.status})${detail}`);
+    throw new GraphApiError(
+      `Unable to read Outlook messages (${response.status})${detail}`,
+      response.status,
+      code
+    );
   }
 
   return response.json() as Promise<T>;
@@ -79,13 +103,7 @@ function isValidShipmentMessage(msg: GraphMessage): boolean {
   return Boolean(msg.id && (msg.body?.content || msg.subject));
 }
 
-async function getEmailsFromSender(
-  accessToken: string,
-  senderEmail: string,
-  subjectContains?: string,
-  options?: { allFolders?: boolean; preferTextBody?: boolean }
-): Promise<GraphMessage[]> {
-  const allMessages: GraphMessage[] = [];
+function buildSenderFilter(senderEmail: string, subjectContains?: string): string {
   const filters: string[] = [
     `from/emailAddress/address eq '${senderEmail.replace(/'/g, "''")}'`,
   ];
@@ -94,21 +112,15 @@ async function getEmailsFromSender(
     filters.push(`contains(subject,'${subjectContains.replace(/'/g, "''")}')`);
   }
 
-  const basePath = options?.allFolders
-    ? `${GRAPH_BASE}/me/messages`
-    : `${GRAPH_BASE}/me/mailFolders/inbox/messages`;
+  return filters.join(' and ');
+}
 
-  const initialUrl =
-    `${basePath}` +
-    `?$select=${MESSAGE_SELECT}` +
-    `&$filter=${encodeURIComponent(filters.join(' and '))}` +
-    `&$orderby=receivedDateTime desc` +
-    `&$top=50`;
-
-  const preferHeaders = options?.preferTextBody
-    ? { Prefer: 'odata.maxpagesize=50, outlook.body-content-type="text"' }
-    : undefined;
-
+async function fetchMessagePages(
+  accessToken: string,
+  initialUrl: string,
+  preferHeaders?: Record<string, string>
+): Promise<GraphMessage[]> {
+  const allMessages: GraphMessage[] = [];
   let url: string | undefined = initialUrl;
 
   while (url) {
@@ -122,6 +134,67 @@ async function getEmailsFromSender(
   }
 
   return allMessages;
+}
+
+function buildMessagesUrl(
+  basePath: string,
+  filter: string,
+  options?: { orderBy?: boolean }
+): string {
+  const params = new URLSearchParams({
+    $select: MESSAGE_SELECT,
+    $filter: filter,
+    $top: '50',
+  });
+
+  if (options?.orderBy) {
+    params.set('$orderby', 'receivedDateTime desc');
+  }
+
+  return `${basePath}?${params.toString()}`;
+}
+
+async function getEmailsFromSender(
+  accessToken: string,
+  senderEmail: string,
+  subjectContains?: string,
+  options?: { allFolders?: boolean; preferTextBody?: boolean }
+): Promise<GraphMessage[]> {
+  const filter = buildSenderFilter(senderEmail, subjectContains);
+  const preferHeaders = options?.preferTextBody
+    ? { Prefer: 'odata.maxpagesize=50, outlook.body-content-type="text"' }
+    : undefined;
+
+  const inboxPath = `${GRAPH_BASE}/me/mailFolders/inbox/messages`;
+  const allMailPath = `${GRAPH_BASE}/me/messages`;
+
+  // Graph returns InefficientFilter when combining from-filter + orderby on /me/messages,
+  // or when the filter is too complex. Try simpler queries first, then fall back.
+  const attempts: Array<{ path: string; orderBy: boolean }> = [];
+
+  if (options?.allFolders) {
+    attempts.push({ path: allMailPath, orderBy: false });
+  }
+  attempts.push({ path: inboxPath, orderBy: false });
+  attempts.push({ path: inboxPath, orderBy: true });
+
+  let lastError: unknown;
+
+  for (const attempt of attempts) {
+    try {
+      const url = buildMessagesUrl(attempt.path, filter, { orderBy: attempt.orderBy });
+      return await fetchMessagePages(accessToken, url, preferHeaders);
+    } catch (error) {
+      lastError = error;
+      if (!isInefficientFilterError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Unable to read Outlook messages: filter too complex for this mailbox.');
 }
 
 async function getShipmentEmailsForSender(
