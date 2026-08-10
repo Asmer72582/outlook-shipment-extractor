@@ -145,9 +145,23 @@ npm run preview
 
 1. Push to GitHub
 2. Import project in [Vercel](https://vercel.com)
-3. Set environment variable: `VITE_MICROSOFT_CLIENT_ID`
-4. Deploy
-5. Add your production URL as a redirect URI in Microsoft Entra
+3. Set environment variables in Vercel → **Settings** → **Environment Variables**:
+   - `VITE_MICROSOFT_CLIENT_ID` — your Entra Application (client) ID
+   - `VITE_MICROSOFT_AUTHORITY` — `consumers` (personal accounts) or `common` (work + personal)
+4. Deploy and copy your production URL (e.g. `https://outlook-shipment-extractor.vercel.app`)
+5. **Register the redirect URI in Microsoft Entra** (required — login will fail without this):
+   - [Microsoft Entra admin center](https://entra.microsoft.com/) → **App registrations** → your app
+   - **Authentication** → **Single-page application** → **Add URI**
+   - Add **exactly**: `https://your-app.vercel.app` (no trailing slash, no path)
+   - Also keep `http://localhost:5173` for local development
+   - Click **Save**
+6. Wait ~1 minute, then open your Vercel URL and click **Connect Outlook**
+
+**Important:** Vercel preview URLs (e.g. `https://your-app-git-branch-username.vercel.app`) are different from production. Each preview URL must be added separately in Entra, or test only on your production domain.
+
+The login page shows the **Redirect URI** your app is sending — that exact value must appear in Entra.
+
+Optional: set `VITE_MICROSOFT_REDIRECT_URI=https://your-app.vercel.app` in Vercel if you use a custom domain.
 
 A `vercel.json` is included for SPA routing.
 
@@ -234,6 +248,16 @@ Restart the dev server after changing `.env`.
 ```env
 VITE_MICROSOFT_AUTHORITY=common
 ```
+
+### AADSTS90023 — redirect URI mismatch
+
+The deployed URL is not registered in Microsoft Entra.
+
+1. Open your deployed app login page — note the **Redirect URI** shown at the bottom
+2. In Entra → your app → **Authentication** → **Single-page application**
+3. Add that exact URI (e.g. `https://outlook-shipment-extractor.vercel.app`)
+4. No trailing slash, no `/dashboard` path — origin only
+5. Save and retry after ~1 minute
 
 ### Redirect URI mismatch
 

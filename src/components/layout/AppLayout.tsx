@@ -1,8 +1,10 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Package, Mail, Settings, Truck } from 'lucide-react';
+import { LayoutDashboard, Package, Mail, Settings, Truck, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { Header } from './Header';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -12,7 +14,16 @@ const navItems = [
 ];
 
 export function AppLayout() {
-  const { account, isAuthenticated } = useAuth();
+  const { account, isAuthenticated, logout } = useAuth();
+  const { toast } = useToast();
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch {
+      toast({ title: 'Sign out failed', variant: 'destructive' });
+    }
+  };
 
   return (
     <div className="flex h-screen">
@@ -46,9 +57,20 @@ export function AppLayout() {
           ))}
         </nav>
         {isAuthenticated && account && (
-          <div className="p-4 border-t text-xs text-muted-foreground">
-            <p className="font-medium text-foreground truncate">{account.name}</p>
-            <p className="truncate">{account.username}</p>
+          <div className="p-4 border-t space-y-3">
+            <div className="text-xs text-muted-foreground">
+              <p className="font-medium text-foreground truncate">{account.name}</p>
+              <p className="truncate">{account.username}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-muted-foreground hover:text-foreground"
+              onClick={handleLogout}
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              Sign out
+            </Button>
           </div>
         )}
       </aside>

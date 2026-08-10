@@ -6,14 +6,22 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/hooks/useAuth';
 import { consumeAuthError } from '@/auth/AuthProvider';
-import { getMicrosoftAuthority } from '@/auth/msalConfig';
+import { getMicrosoftAuthority, getRedirectUri } from '@/auth/msalConfig';
 
 function getFriendlyAuthError(message: string): string {
   if (message.includes("userAudience") && message.includes('/common/')) {
     return (
       'Your Microsoft app is registered for personal accounts only, but the app is using the /common/ sign-in endpoint. ' +
-      'Set VITE_MICROSOFT_AUTHORITY=consumers in your .env file and restart the dev server, ' +
+      'Set VITE_MICROSOFT_AUTHORITY=consumers in your environment variables and redeploy, ' +
       'or change your Entra app to support "All account types".'
+    );
+  }
+
+  if (message.includes('90023') || message.includes('redirect_uri')) {
+    const redirectUri = getRedirectUri();
+    return (
+      `Redirect URI mismatch (AADSTS90023). Add this exact URI in Microsoft Entra → your app → Authentication → Single-page application redirect URIs: ${redirectUri} ` +
+      '(no trailing slash). Then save and wait ~1 minute before trying again.'
     );
   }
 
@@ -67,6 +75,9 @@ export function LoginPage() {
           </p>
           <p className="text-xs text-center text-muted-foreground">
             Sign-in endpoint: {authority.replace('https://login.microsoftonline.com/', '')}
+          </p>
+          <p className="text-xs text-center text-muted-foreground break-all">
+            Redirect URI: {getRedirectUri()}
           </p>
         </CardContent>
       </Card>

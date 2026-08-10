@@ -20,12 +20,24 @@ export function getMicrosoftAuthority(): string {
   return `https://login.microsoftonline.com/${value}`;
 }
 
+/**
+ * OAuth redirect URI sent to Microsoft. Must exactly match a SPA redirect URI
+ * registered in Microsoft Entra (no trailing slash).
+ */
+export function getRedirectUri(): string {
+  const configured = import.meta.env.VITE_MICROSOFT_REDIRECT_URI?.trim();
+  if (configured) {
+    return configured.replace(/\/$/, '');
+  }
+  return window.location.origin;
+}
+
 export const msalConfig: Configuration = {
   auth: {
     clientId: import.meta.env.VITE_MICROSOFT_CLIENT_ID,
     authority: getMicrosoftAuthority(),
-    redirectUri: window.location.origin,
-    postLogoutRedirectUri: window.location.origin,
+    redirectUri: getRedirectUri(),
+    postLogoutRedirectUri: getRedirectUri(),
     navigateToLoginRequestUrl: true,
   },
   cache: {

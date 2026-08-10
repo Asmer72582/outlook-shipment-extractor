@@ -1,4 +1,4 @@
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, LogOut } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
@@ -15,7 +15,7 @@ const PAGE_TITLES: Record<string, string> = {
 
 export function Header() {
   const location = useLocation();
-  const { account, isAuthenticated } = useAuth();
+  const { account, isAuthenticated, logout } = useAuth();
   const { sync, isSyncing, currentStep, result, error, clearResult } = useSync();
   const { toast } = useToast();
 
@@ -42,6 +42,14 @@ export function Header() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch {
+      toast({ title: 'Sign out failed', variant: 'destructive' });
+    }
+  };
+
   return (
     <>
       <header className="border-b bg-card px-6 py-4 flex items-center justify-between">
@@ -59,6 +67,15 @@ export function Header() {
                 {account.name?.charAt(0) || '?'}
               </div>
               <span className="hidden sm:inline text-muted-foreground">{account.username}</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleLogout}
+                title="Sign out"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
             </div>
           )}
         </div>

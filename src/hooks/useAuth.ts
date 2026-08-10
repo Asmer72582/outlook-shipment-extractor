@@ -2,7 +2,7 @@ import { InteractionRequiredAuthError } from '@azure/msal-browser';
 import { useMsal } from '@azure/msal-react';
 import { useCallback } from 'react';
 import { graphScopes, loginRequest } from '@/auth/authConfig';
-import { msalInstance } from '@/auth/AuthProvider';
+import { getRedirectUri } from '@/auth/msalConfig';
 
 export function useAuth() {
   const { instance, accounts, inProgress } = useMsal();
@@ -16,7 +16,7 @@ export function useAuth() {
   const logout = useCallback(async () => {
     await instance.logoutRedirect({
       account: account ?? undefined,
-      postLogoutRedirectUri: window.location.origin,
+      postLogoutRedirectUri: getRedirectUri(),
     });
   }, [instance, account]);
 
@@ -48,6 +48,5 @@ export function useAuth() {
     login,
     logout,
     getAccessToken,
-    instance: msalInstance,
   };
 }
