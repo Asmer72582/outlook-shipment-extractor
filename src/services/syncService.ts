@@ -1,6 +1,7 @@
 import { fetchShipmentMessages } from '@/services/graphService';
 import { extractShipmentDetails } from '@/services/shipmentExtractor';
 import { getConfiguration } from '@/db/repositories/configurationRepository';
+import { getSenderEmails } from '@/utils/configuration';
 import {
   createShipment,
   getShipmentByOutlookId,
@@ -25,8 +26,8 @@ export async function syncOutlookEmails(
   const accessToken = await getAccessToken();
 
   const config = await getConfiguration();
-  if (!config.senderEmail?.trim()) {
-    throw new Error('Configure the shipment sender before syncing.');
+  if (getSenderEmails(config).length === 0) {
+    throw new Error('Configure at least one shipment sender email in Settings.');
   }
 
   onStep?.('searching');
@@ -59,8 +60,8 @@ export async function syncOutlookEmails(
     }
 
     const extraction = extractShipmentDetails(
-      message.body.content,
-      message.body.contentType,
+      message.body!.content,
+      message.body!.contentType,
       config
     );
 
@@ -76,7 +77,7 @@ export async function syncOutlookEmails(
       outlookMessageId: message.id,
       shipmentFrom: extraction.shipmentFrom,
       shipmentDate: extraction.shipmentDate,
-      emailSender: message.from?.emailAddress?.address || config.senderEmail,
+      emailSender: message.from?.emailAddress?.address || getSenderEmails(config)[0] || '',
       emailSubject: message.subject || '',
       emailReceivedAt: message.receivedDateTime,
       extractionStatus: extraction.status,

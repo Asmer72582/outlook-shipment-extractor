@@ -1,14 +1,21 @@
-import type { GraphMessage, GraphMessagesResponse, GraphUser } from '@/types/outlook';
+import type { GraphMessage, GraphMessagesResponse, GraphUser, InboxPageResult } from '@/types/outlook';
 import type { ShipmentConfiguration } from '@/types/configuration';
+import { getSenderEmails } from '@/utils/configuration';
 
 const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 const MESSAGE_SELECT = 'id,subject,from,receivedDateTime,body';
+const INBOX_LIST_SELECT = 'id,subject,from,receivedDateTime,bodyPreview,isRead';
 
-async function graphFetch<T>(url: string, accessToken: string): Promise<T> {
+async function graphFetch<T>(
+  url: string,
+  accessToken: string,
+  extraHeaders?: Record<string, string>
+): Promise<T> {
   const response = await fetch(url, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Prefer: 'odata.maxpagesize=50',
+      ...extraHeaders,
     },
   });
 
@@ -48,19 +55,9 @@ export async function getCurrentUser(accessToken: string): Promise<GraphUser> {
   return graphFetch<GraphUser>(`${GRAPH_BASE}/me`, accessToken);
 }
 
-export async function getInboxMessages(
-  accessToken: string,
-  nextLink?: string
-): Promise<GraphMessagesResponse> {
-  const url =
-    nextLink ||
-    `${GRAPH_BASE}/me/mailFolders/inbox/messages?$select=${MESSAGE_SELECT}&$top=50`;
-  return graphFetch<GraphMessagesResponse>(url, accessToken);
-}
-
-function matchesSender(message: GraphMessage, senderEmail: string): boolean {
+function matchesAnySender(message: GraphMessage, senderEmails: string[]): boolean {
   const address = message.from?.emailAddress?.address?.toLowerCase() ?? '';
-  return address === senderEmail.toLowerCase();
+  return senderEmails.some((email) => address === email.toLowerCase());
 }
 
 function matchesSubject(message: GraphMessage, subjectContains: string): boolean {
@@ -70,55 +67,119 @@ function matchesSubject(message: GraphMessage, subjectContains: string): boolean
 
 export function filterShipmentMessages(
   messages: GraphMessage[],
-  config: Pick<ShipmentConfiguration, 'senderEmail' | 'subjectContains'>
+  config: Pick<ShipmentConfiguration, 'senderEmails' | 'senderEmail' | 'subjectContains'>
 ): GraphMessage[] {
+  const senderEmails = getSenderEmails(config);
   return messages.filter(
-    (msg) => matchesSender(msg, config.senderEmail) && matchesSubject(msg, config.subjectContains)
+    (msg) => matchesAnySender(msg, senderEmails) && matchesSubject(msg, config.subjectContains)
   );
 }
 
-function isValidMessage(msg: GraphMessage): boolean {
-  return Boolean(msg.id && msg.body?.content);
+function isValidShipmentMessage(msg: GraphMessage): boolean {
+  return Boolean(msg.id && (msg.body?.content || msg.subject));
 }
 
-/**
- * Initial sync via standard messages endpoint — supports full OData $filter.
- */
-export async function getShipmentEmails(
+async function getEmailsFromSender(
   accessToken: string,
-  config: Pick<ShipmentConfiguration, 'senderEmail' | 'subjectContains'>
+  senderEmail: string,
+  subjectContains?: string,
+  options?: { allFolders?: boolean; preferTextBody?: boolean }
 ): Promise<GraphMessage[]> {
   const allMessages: GraphMessage[] = [];
   const filters: string[] = [
-    `from/emailAddress/address eq '${config.senderEmail.replace(/'/g, "''")}'`,
+    `from/emailAddress/address eq '${senderEmail.replace(/'/g, "''")}'`,
   ];
 
-  if (config.subjectContains?.trim()) {
-    filters.push(`contains(subject,'${config.subjectContains.replace(/'/g, "''")}')`);
+  if (subjectContains?.trim()) {
+    filters.push(`contains(subject,'${subjectContains.replace(/'/g, "''")}')`);
   }
 
+  const basePath = options?.allFolders
+    ? `${GRAPH_BASE}/me/messages`
+    : `${GRAPH_BASE}/me/mailFolders/inbox/messages`;
+
   const initialUrl =
-    `${GRAPH_BASE}/me/mailFolders/inbox/messages` +
+    `${basePath}` +
     `?$select=${MESSAGE_SELECT}` +
     `&$filter=${encodeURIComponent(filters.join(' and '))}` +
+    `&$orderby=receivedDateTime desc` +
     `&$top=50`;
+
+  const preferHeaders = options?.preferTextBody
+    ? { Prefer: 'odata.maxpagesize=50, outlook.body-content-type="text"' }
+    : undefined;
 
   let url: string | undefined = initialUrl;
 
   while (url) {
-    const data: GraphMessagesResponse = await graphFetch<GraphMessagesResponse>(url, accessToken);
-    allMessages.push(...data.value.filter(isValidMessage));
+    const data: GraphMessagesResponse = await graphFetch<GraphMessagesResponse>(
+      url,
+      accessToken,
+      preferHeaders
+    );
+    allMessages.push(...data.value.filter(isValidShipmentMessage));
     url = data['@odata.nextLink'];
   }
 
   return allMessages;
 }
 
+async function getShipmentEmailsForSender(
+  accessToken: string,
+  senderEmail: string,
+  subjectContains: string
+): Promise<GraphMessage[]> {
+  return getEmailsFromSender(accessToken, senderEmail, subjectContains);
+}
+
+/** Fetch all emails from configured senders for container/CIPL checking (no subject filter). */
+export async function fetchEmailsForContainerCheck(
+  accessToken: string,
+  senderEmails: string[],
+  onProgress?: (emailCount: number) => void
+): Promise<GraphMessage[]> {
+  const byId = new Map<string, GraphMessage>();
+
+  for (const senderEmail of senderEmails) {
+    const messages = await getEmailsFromSender(accessToken, senderEmail, undefined, {
+      allFolders: true,
+      preferTextBody: true,
+    });
+    for (const msg of messages) {
+      byId.set(msg.id, msg);
+    }
+    onProgress?.(byId.size);
+  }
+
+  return Array.from(byId.values());
+}
+
 /**
- * Walk the delta endpoint to obtain a deltaLink for future incremental syncs.
- * Delta queries do not support from/subject filters — only receivedDateTime ge.
- * We request minimal fields to reduce payload while establishing the token.
+ * Initial sync via standard messages endpoint — supports full OData $filter per sender.
  */
+export async function getShipmentEmails(
+  accessToken: string,
+  config: Pick<ShipmentConfiguration, 'senderEmails' | 'senderEmail' | 'subjectContains'>
+): Promise<GraphMessage[]> {
+  const senderEmails = getSenderEmails(config);
+  if (senderEmails.length === 0) return [];
+
+  const byId = new Map<string, GraphMessage>();
+
+  for (const senderEmail of senderEmails) {
+    const messages = await getShipmentEmailsForSender(
+      accessToken,
+      senderEmail,
+      config.subjectContains
+    );
+    for (const msg of messages) {
+      byId.set(msg.id, msg);
+    }
+  }
+
+  return Array.from(byId.values());
+}
+
 async function bootstrapDeltaLink(accessToken: string): Promise<string | null> {
   let url: string | undefined =
     `${GRAPH_BASE}/me/mailFolders/inbox/messages/delta?$select=id&$top=50`;
@@ -134,15 +195,10 @@ async function bootstrapDeltaLink(accessToken: string): Promise<string | null> {
   return null;
 }
 
-/**
- * Incremental sync via stored deltaLink.
- * Sender/subject filtering is applied client-side because Graph delta
- * only supports: receivedDateTime ge {value}
- */
 async function fetchDeltaMessages(
   accessToken: string,
   deltaLink: string,
-  config: Pick<ShipmentConfiguration, 'senderEmail' | 'subjectContains'>
+  config: Pick<ShipmentConfiguration, 'senderEmails' | 'senderEmail' | 'subjectContains'>
 ): Promise<{ messages: GraphMessage[]; deltaLink: string | null; expired: boolean }> {
   const rawMessages: GraphMessage[] = [];
   let newDeltaLink: string | null = null;
@@ -152,7 +208,7 @@ async function fetchDeltaMessages(
     while (url) {
       const data: GraphMessagesResponse = await graphFetch<GraphMessagesResponse>(url, accessToken);
 
-      rawMessages.push(...data.value.filter(isValidMessage));
+      rawMessages.push(...data.value.filter(isValidShipmentMessage));
 
       if (data['@odata.deltaLink']) {
         newDeltaLink = data['@odata.deltaLink'];
@@ -175,14 +231,9 @@ async function fetchDeltaMessages(
   };
 }
 
-/**
- * Fetch shipment emails and maintain delta sync state.
- * - No deltaLink: filtered initial sync + bootstrap delta token
- * - Has deltaLink: incremental delta sync with client-side filtering
- */
 export async function fetchShipmentMessages(
   accessToken: string,
-  config: Pick<ShipmentConfiguration, 'senderEmail' | 'subjectContains'>,
+  config: Pick<ShipmentConfiguration, 'senderEmails' | 'senderEmail' | 'subjectContains'>,
   deltaLink: string | null
 ): Promise<{ messages: GraphMessage[]; deltaLink: string | null; expired: boolean }> {
   if (deltaLink) {
@@ -195,13 +246,24 @@ export async function fetchShipmentMessages(
   return { messages, deltaLink: newDeltaLink, expired: false };
 }
 
-/** @deprecated Use fetchShipmentMessages */
-export async function getDeltaMessages(
+/** Fetch a page of inbox messages for the portal inbox viewer. */
+export async function fetchInboxPage(
   accessToken: string,
-  deltaLink: string | null,
-  config: Pick<ShipmentConfiguration, 'senderEmail' | 'subjectContains'>
-): Promise<{ messages: GraphMessage[]; deltaLink: string | null; expired: boolean }> {
-  return fetchShipmentMessages(accessToken, config, deltaLink);
+  nextLink?: string
+): Promise<InboxPageResult> {
+  const url =
+    nextLink ||
+    `${GRAPH_BASE}/me/mailFolders/inbox/messages` +
+      `?$select=${INBOX_LIST_SELECT}` +
+      `&$orderby=receivedDateTime desc` +
+      `&$top=25`;
+
+  const data: GraphMessagesResponse = await graphFetch<GraphMessagesResponse>(url, accessToken);
+
+  return {
+    messages: data.value.filter((msg) => Boolean(msg.id)),
+    nextLink: data['@odata.nextLink'],
+  };
 }
 
 export async function getEmailBody(

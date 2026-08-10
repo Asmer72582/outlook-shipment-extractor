@@ -1,6 +1,7 @@
 import { db } from '@/db/database';
-import type { ShipmentConfiguration } from '@/types/configuration';
+import type { ShipmentConfiguration, ShipmentConfigInput } from '@/types/configuration';
 import { DEFAULT_CONFIGURATION } from '@/types/configuration';
+import { migrateConfiguration } from '@/utils/configuration';
 
 const CONFIG_ID = 1;
 
@@ -15,13 +16,14 @@ export function getDefaultConfiguration(): ShipmentConfiguration {
 /** Read-only — safe for useLiveQuery */
 export async function readConfiguration(): Promise<ShipmentConfiguration> {
   const config = await db.configuration.get(CONFIG_ID);
-  return config ?? getDefaultConfiguration();
+  if (!config) return getDefaultConfiguration();
+  return migrateConfiguration(config);
 }
 
 /** Ensures a record exists — use outside liveQuery only */
 export async function ensureConfiguration(): Promise<ShipmentConfiguration> {
   const existing = await db.configuration.get(CONFIG_ID);
-  if (existing) return existing;
+  if (existing) return migrateConfiguration(existing);
 
   const defaultConfig = getDefaultConfiguration();
   await db.configuration.put(defaultConfig);
@@ -32,9 +34,7 @@ export async function getConfiguration(): Promise<ShipmentConfiguration> {
   return ensureConfiguration();
 }
 
-export async function saveConfiguration(
-  data: Omit<ShipmentConfiguration, 'id' | 'updatedAt'>
-): Promise<ShipmentConfiguration> {
+export async function saveConfiguration(data: ShipmentConfigInput): Promise<ShipmentConfiguration> {
   const config: ShipmentConfiguration = {
     id: CONFIG_ID,
     ...data,

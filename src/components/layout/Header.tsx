@@ -10,6 +10,8 @@ const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Shipment Dashboard',
   '/shipments': 'Shipments',
   '/outlook': 'Outlook',
+  '/check-shipment': 'Check Shipment',
+  '/inbox': 'Outlook Inbox',
   '/settings': 'Settings',
 };
 

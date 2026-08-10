@@ -17,7 +17,9 @@ export interface GraphMessage {
     emailAddress: GraphEmailAddress;
   };
   receivedDateTime: string;
-  body: {
+  bodyPreview?: string;
+  isRead?: boolean;
+  body?: {
     contentType: 'text' | 'html';
     content: string;
   };
@@ -44,4 +46,9 @@ export interface SyncResult {
   newShipments: number;
   duplicates: number;
   failedExtractions: number;
+}
+
+export interface InboxPageResult {
+  messages: GraphMessage[];
+  nextLink?: string;
 }

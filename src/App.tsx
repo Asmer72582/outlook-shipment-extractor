@@ -8,6 +8,8 @@ import { LoginPage } from '@/pages/Login';
 import { DashboardPage } from '@/pages/Dashboard';
 import { ShipmentsPage } from '@/pages/Shipments';
 import { OutlookPage } from '@/pages/Outlook';
+import { InboxPage } from '@/pages/Inbox';
+import { CheckShipmentPage } from '@/pages/CheckShipment';
 import { SettingsPage } from '@/pages/Settings';
 
 const queryClient = new QueryClient();
@@ -32,6 +34,8 @@ function AppRoutes() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/shipments" element={<ShipmentsPage />} />
         <Route path="/outlook" element={<OutlookPage />} />
+        <Route path="/check-shipment" element={<CheckShipmentPage />} />
+        <Route path="/inbox" element={<InboxPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

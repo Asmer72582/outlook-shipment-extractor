@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Mail, CheckCircle, RefreshCw, Unplug } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Mail, CheckCircle, RefreshCw, Unplug, Inbox } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
@@ -8,6 +9,7 @@ import { useSync } from '@/hooks/useSync';
 import { useToast } from '@/hooks/use-toast';
 import { testConnection } from '@/services/graphService';
 import { readSyncState } from '@/db/repositories/syncStateRepository';
+import { readConfiguration } from '@/db/repositories/configurationRepository';
 import { formatDateTime } from '@/utils/date';
 import { SyncDialog } from '@/components/outlook/SyncDialog';
 
@@ -19,6 +21,7 @@ export function OutlookPage() {
   const [showSyncDialog, setShowSyncDialog] = useState(false);
 
   const syncState = useLiveQuery(() => readSyncState(), []);
+  const config = useLiveQuery(() => readConfiguration(), []);
 
   const handleTest = async () => {
     setTesting(true);
@@ -102,6 +105,14 @@ export function OutlookPage() {
                   <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
                   Sync Emails
                 </Button>
+                {config?.enableInboxViewer && (
+                  <Button variant="outline" asChild>
+                    <Link to="/inbox">
+                      <Inbox className="h-4 w-4 mr-2" />
+                      Open Inbox
+                    </Link>
+                  </Button>
+                )}
                 <Button variant="destructive" onClick={handleDisconnect}>
                   <Unplug className="h-4 w-4 mr-2" />
                   Disconnect

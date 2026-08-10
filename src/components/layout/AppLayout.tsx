@@ -1,21 +1,30 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Package, Mail, Settings, Truck, LogOut } from 'lucide-react';
+import { LayoutDashboard, Package, Mail, Settings, Truck, LogOut, Inbox, ClipboardCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { Header } from './Header';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { readConfiguration } from '@/db/repositories/configurationRepository';
 
-const navItems = [
+const baseNavItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/shipments', label: 'Shipments', icon: Package },
   { to: '/outlook', label: 'Outlook', icon: Mail },
+  { to: '/check-shipment', label: 'Check Shipment', icon: ClipboardCheck },
+  { to: '/inbox', label: 'Inbox', icon: Inbox, requiresInbox: true },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
 export function AppLayout() {
   const { account, isAuthenticated, logout } = useAuth();
   const { toast } = useToast();
+  const config = useLiveQuery(() => readConfiguration(), []);
+
+  const navItems = baseNavItems.filter(
+    (item) => !item.requiresInbox || config?.enableInboxViewer
+  );
 
   const handleLogout = async () => {
     try {
