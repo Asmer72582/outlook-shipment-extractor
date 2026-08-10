@@ -106,7 +106,7 @@ export async function getShipmentEmails(
   let url: string | undefined = initialUrl;
 
   while (url) {
-    const data = await graphFetch<GraphMessagesResponse>(url, accessToken);
+    const data: GraphMessagesResponse = await graphFetch<GraphMessagesResponse>(url, accessToken);
     allMessages.push(...data.value.filter(isValidMessage));
     url = data['@odata.nextLink'];
   }
@@ -124,7 +124,7 @@ async function bootstrapDeltaLink(accessToken: string): Promise<string | null> {
     `${GRAPH_BASE}/me/mailFolders/inbox/messages/delta?$select=id&$top=50`;
 
   while (url) {
-    const data = await graphFetch<GraphMessagesResponse>(url, accessToken);
+    const data: GraphMessagesResponse = await graphFetch<GraphMessagesResponse>(url, accessToken);
     if (data['@odata.deltaLink']) {
       return data['@odata.deltaLink'];
     }
@@ -150,7 +150,7 @@ async function fetchDeltaMessages(
 
   try {
     while (url) {
-      const data = await graphFetch<GraphMessagesResponse>(url, accessToken);
+      const data: GraphMessagesResponse = await graphFetch<GraphMessagesResponse>(url, accessToken);
 
       rawMessages.push(...data.value.filter(isValidMessage));
 
