@@ -38,10 +38,14 @@ export const msalConfig: Configuration = {
     authority: getMicrosoftAuthority(),
     redirectUri: getRedirectUri(),
     postLogoutRedirectUri: getRedirectUri(),
-    navigateToLoginRequestUrl: true,
+    // React Router handles navigation — avoids extra redirect state (AADSTS50147)
+    navigateToLoginRequestUrl: false,
   },
   cache: {
     cacheLocation: 'sessionStorage',
     storeAuthStateInCookie: false,
+  },
+  system: {
+    allowRedirectInIframe: false,
   },
 };

@@ -9,11 +9,37 @@ import { consumeAuthError } from '@/auth/AuthProvider';
 import { getMicrosoftAuthority, getRedirectUri } from '@/auth/msalConfig';
 
 function getFriendlyAuthError(message: string): string {
-  if (message.includes("userAudience") && message.includes('/common/')) {
+  const lower = message.toLowerCase();
+
+  if (
+    lower.includes('useraudience') ||
+    lower.includes('aadsts50020') ||
+    (lower.includes('personal') && lower.includes('microsoft'))
+  ) {
+    return (
+      'This work or school account cannot sign in with the current Microsoft app settings. ' +
+      'Set VITE_MICROSOFT_AUTHORITY=common in your environment variables and redeploy. ' +
+      'In Microsoft Entra, your app must support "Accounts in any organizational directory and personal Microsoft accounts".'
+    );
+  }
+
+  if (lower.includes('useraudience') && lower.includes('/common/')) {
     return (
       'Your Microsoft app is registered for personal accounts only, but the app is using the /common/ sign-in endpoint. ' +
-      'Set VITE_MICROSOFT_AUTHORITY=consumers in your environment variables and redeploy, ' +
-      'or change your Entra app to support "All account types".'
+      'Either set VITE_MICROSOFT_AUTHORITY=consumers (personal only), or change your Entra app to support all account types and use common.'
+    );
+  }
+
+  if (message.includes('50147') || lower.includes('session state cookie')) {
+    return (
+      'Microsoft login session is overloaded (AADSTS50147). Close other Microsoft login tabs, ' +
+      'clear cookies for login.microsoftonline.com, then try again. Using a private/incognito window also helps.'
+    );
+  }
+
+  if (lower.includes('popup') || lower.includes('blocked')) {
+    return (
+      'Sign-in popup was blocked. Allow popups for this site in your browser, then click Connect Outlook again.'
     );
   }
 
@@ -32,6 +58,7 @@ export function LoginPage() {
   const isAuthenticated = useIsAuthenticated();
   const { login } = useAuth();
   const [error, setError] = useState<string | null>(null);
+  const [loggingIn, setLoggingIn] = useState(false);
 
   useEffect(() => {
     const authError = consumeAuthError();
@@ -39,6 +66,19 @@ export function LoginPage() {
       setError(getFriendlyAuthError(authError));
     }
   }, []);
+
+  const handleLogin = async () => {
+    setError(null);
+    setLoggingIn(true);
+    try {
+      await login();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Microsoft sign-in failed.';
+      setError(getFriendlyAuthError(message));
+    } finally {
+      setLoggingIn(false);
+    }
+  };
 
   if (isAuthenticated) {
     return <Navigate to="/dashboard" replace />;
@@ -56,7 +96,7 @@ export function LoginPage() {
           <div>
             <CardTitle className="text-2xl">Shipment Mail Extractor</CardTitle>
             <CardDescription className="mt-2">
-              Automatically extract shipment details from Outlook emails.
+              Sign in with your work, school, or personal Microsoft account to read Outlook emails.
             </CardDescription>
           </div>
         </CardHeader>
@@ -66,8 +106,8 @@ export function LoginPage() {
               {error}
             </div>
           )}
-          <Button className="w-full" size="lg" onClick={() => login()}>
-            Connect Outlook
+          <Button className="w-full" size="lg" onClick={handleLogin} disabled={loggingIn}>
+            {loggingIn ? 'Opening Microsoft sign-in...' : 'Connect Outlook'}
           </Button>
           <p className="text-xs text-center text-muted-foreground">
             Your email content is processed locally in your browser. Only extracted shipment
